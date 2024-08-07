@@ -107,7 +107,7 @@ export const getBillText = async (pdfUrl: string, downloadPath: string) => {
     return text;
   } catch (error) {
     logger.error('Error getting bill text:', { pdfUrl, error });
-    return null;
+    throw error
   } finally {
     logger.info('Quitting driver...');
     //@ts-ignore
@@ -123,5 +123,3 @@ export const getBillText = async (pdfUrl: string, downloadPath: string) => {
 // };
 
 // getBillTexts(pdfUrls, __dirname);
-
-export default getBillText;

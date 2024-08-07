@@ -1,8 +1,9 @@
 import express from "express";
 import dotenv from "dotenv"
 import fs from "fs/promises"
-import getBillText from "./utils/getBillText.js";
+import { getBillText } from "./utils/getBillText.js";
 const app = express()
+
 
 dotenv.config()
 
