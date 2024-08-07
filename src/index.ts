@@ -27,7 +27,7 @@ if (!(await fileExists(pdfDownloadDir))) {
 app.get("/", async (req, res) => {
     const pdfUrl = req.query.pdfUrl as string
     if (!pdfUrl) {
-        res.status(400).json({
+        return res.status(400).json({
             status: "failed",
             message: "Please provide 'pdfUrl' as url parameter."
         })
@@ -35,13 +35,13 @@ app.get("/", async (req, res) => {
 
     try {
         const pdfText = await getBillText(pdfUrl, pdfDownloadDir)
-        res.json({
+        return res.json({
             status: "success",
             text: pdfText
         })
     } catch (error) {
         console.log(error);
-        res.status(400).json({
+        return res.status(400).json({
             status: "failed",
             message: "Unexpected error",
             error
