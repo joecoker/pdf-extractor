@@ -1,9 +1,9 @@
 import express from "express";
 import dotenv from "dotenv"
 import fs from "fs/promises"
-import { getBillText } from "./utils/getBillText.js";
+import { getPdfText } from "./utils/getPdfText.js";
+import { pdfUrls } from "./pdf-urls.js";
 const app = express()
-
 
 dotenv.config()
 
@@ -22,11 +22,10 @@ const fileExists = async (filePath: string) => {
 // creating PDF download directory if exist
 if (!(await fileExists(pdfDownloadDir))) {
     await fs.mkdir(pdfDownloadDir);
-}// const pdfBuffer = await getPdfBuffer(pdfUrl, pdfDownloadDir)
-
+}
 
 app.get("/", async (req, res) => {
-    const pdfUrl = req.query.pdfUrl as string
+    const pdfUrl = req.query["url"] as string
     if (!pdfUrl) {
         return res.status(400).json({
             status: "failed",
@@ -35,10 +34,40 @@ app.get("/", async (req, res) => {
     }
 
     try {
-        const pdfText = await getBillText(pdfUrl, pdfDownloadDir)
+        const pdfText = await getPdfText(pdfUrl)
         return res.json({
             status: "success",
             text: pdfText
+        })
+    } catch (error) {
+        console.log(error);
+        return res.status(400).json({
+            status: "failed",
+            message: "Unexpected error",
+            error
+        })
+    }
+})
+
+app.get("/get-all", async (req, res) => {
+    const getPdfsTextPromise = pdfUrls.map(pdfUrl => getPdfText(pdfUrl))
+    try {
+        const allPdfResult = await Promise.allSettled(getPdfsTextPromise)
+        let successCount = 0
+        const data = allPdfResult.map((result, index) => {
+            if(result.status === "fulfilled") successCount++
+            return {
+                url: pdfUrls[index],
+                status: result.status === "fulfilled" ? "success" : "failed",
+                //@ts-ignore
+                text: result.value
+            }
+        })
+        return res.json({
+            status: "success",
+            pdfCount: allPdfResult.length,
+            successCount,
+            text: data
         })
     } catch (error) {
         console.log(error);
