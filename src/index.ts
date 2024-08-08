@@ -1,28 +1,21 @@
 import express from "express";
 import dotenv from "dotenv"
-import fs from "fs/promises"
-import { getPdfText } from "./utils/getPdfText.js";
 import { pdfUrls } from "./pdf-urls.js";
-const app = express()
-
+import puppeteerExtra from 'puppeteer-extra'
+import StealthPlugin from 'puppeteer-extra-plugin-stealth'
+import { pdfToText } from "pdf-ts";
+import PQueue from 'p-queue';
 dotenv.config()
 
-const pdfDownloadDir = process.env.DOWNLOAD_DIR || "./pdfs"
 const PORT = process.env.PORT || 3000
-
-const fileExists = async (filePath: string) => {
-    try {
-        await fs.access(filePath);
-        return true;
-    } catch (err) {
-        return false;
-    }
-}
-
-// creating PDF download directory if exist
-if (!(await fileExists(pdfDownloadDir))) {
-    await fs.mkdir(pdfDownloadDir);
-}
+const app = express()
+const puppeteer = puppeteerExtra.default
+puppeteer.use(StealthPlugin())
+const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox'],
+})
+const queue = new PQueue({concurrency: parseInt(process.env.CONCURRENCY || "1")});
 
 app.get("/", async (req, res) => {
     const pdfUrl = req.query["url"] as string
@@ -34,7 +27,7 @@ app.get("/", async (req, res) => {
     }
 
     try {
-        const pdfText = await getPdfText(pdfUrl)
+        const pdfText = await queue.add(() => getPdfText(pdfUrl))
         return res.json({
             status: "success",
             text: pdfText
@@ -50,12 +43,12 @@ app.get("/", async (req, res) => {
 })
 
 app.get("/get-all", async (req, res) => {
-    const getPdfsTextPromise = pdfUrls.map(pdfUrl => getPdfText(pdfUrl))
+    const getPdfsTextPromise = pdfUrls.map(pdfUrl => queue.add(() => getPdfText(pdfUrl)))
     try {
         const allPdfResult = await Promise.allSettled(getPdfsTextPromise)
         let successCount = 0
         const data = allPdfResult.map((result, index) => {
-            if(result.status === "fulfilled") successCount++
+            if (result.status === "fulfilled") successCount++
             return {
                 url: pdfUrls[index],
                 status: result.status === "fulfilled" ? "success" : "failed",
@@ -78,6 +71,27 @@ app.get("/get-all", async (req, res) => {
         })
     }
 })
+
+const getPdfText = async (pdfUrl: string) => {
+    const page = await browser.newPage()
+    console.log("Loading PDF: ", pdfUrl);
+    await page.goto(pdfUrl)
+    const pdfBinaryString = await page.evaluate(async (url) => {
+        var response = await fetch(url, { method: 'GET', credentials: 'include' });
+        var blob = await response.blob();
+        var result = new Promise((resolve, reject) => {
+            var reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsBinaryString(blob);
+        });
+        return result;
+    }, pdfUrl);
+
+    console.log("Successfully downloaded PDF: ", pdfUrl);
+    //@ts-ignore
+    return await pdfToText(Buffer.from(pdfBinaryString, "binary"))
+};
 
 
 app.listen(PORT, () => {
