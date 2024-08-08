@@ -89,6 +89,7 @@ const getPdfText = async (pdfUrl: string) => {
     }, pdfUrl);
 
     console.log("Successfully downloaded PDF: ", pdfUrl);
+    await page.close()
     //@ts-ignore
     return await pdfToText(Buffer.from(pdfBinaryString, "binary"))
 };
