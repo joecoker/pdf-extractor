@@ -5,6 +5,7 @@ import puppeteerExtra from 'puppeteer-extra'
 import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 import { pdfToText } from "pdf-ts";
 import PQueue from 'p-queue';
+import pRetry, { AbortError } from 'p-retry'
 dotenv.config()
 
 const PORT = process.env.PORT || 3000
@@ -15,7 +16,7 @@ const browser = await puppeteer.launch({
     headless: true,
     args: ['--no-sandbox'],
 })
-const queue = new PQueue({concurrency: parseInt(process.env.CONCURRENCY || "1")});
+const queue = new PQueue({ concurrency: parseInt(process.env.CONCURRENCY || "1") });
 
 app.get("/", async (req, res) => {
     const pdfUrl = req.query["url"] as string
@@ -27,7 +28,12 @@ app.get("/", async (req, res) => {
     }
 
     try {
-        const pdfText = await queue.add(() => getPdfText(pdfUrl))
+        const pdfText = await queue.add(() => pRetry(() => getPdfText(pdfUrl), {
+            onFailedAttempt: error => {
+                console.warn(`Download attempt failed (${error.attemptNumber}/5): ${pdfUrl}`)
+            },
+            retries: 5
+        }))
         return res.json({
             status: "success",
             text: pdfText
@@ -43,7 +49,12 @@ app.get("/", async (req, res) => {
 })
 
 app.get("/get-all", async (req, res) => {
-    const getPdfsTextPromise = pdfUrls.map(pdfUrl => queue.add(() => getPdfText(pdfUrl)))
+    const getPdfsTextPromise = pdfUrls.map(pdfUrl => queue.add(() => pRetry(() => getPdfText(pdfUrl), {
+        onFailedAttempt: error => {
+            console.warn(`Download attempt failed (${error.attemptNumber}/5): ${pdfUrl}`)
+        },
+        retries: 5
+    })))
     try {
         const allPdfResult = await Promise.allSettled(getPdfsTextPromise)
         let successCount = 0
@@ -78,6 +89,9 @@ const getPdfText = async (pdfUrl: string) => {
     await page.goto(pdfUrl)
     const pdfBinaryString = await page.evaluate(async (url) => {
         var response = await fetch(url, { method: 'GET', credentials: 'include' });
+        if (response.status !== 200) {
+            throw new AbortError(`Failed to download (${response.statusText}): ${pdfUrl}`)
+        }
         var blob = await response.blob();
         var result = new Promise((resolve, reject) => {
             var reader = new FileReader();
